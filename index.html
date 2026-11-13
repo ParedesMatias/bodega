@@ -34,8 +34,19 @@
   .ok{background:var(--brand2);color:var(--brand)}
   .low{background:var(--warnbg);color:var(--warn)}
   .out{background:var(--badbg);color:var(--bad)}
-  #cam{display:none;margin-top:10px}
-  #cam video{width:100%;max-height:300px;object-fit:cover;border-radius:12px;background:#000}
+  #camOverlay{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:30;display:flex;align-items:center;justify-content:center;padding:12px}
+  #camOverlay.hide{display:none}
+  .camBox{width:100%;max-width:560px;color:#fff;text-align:center}
+  .vwrap{position:relative;border-radius:14px;overflow:hidden;background:#000}
+  .vwrap video{width:100%;height:58vh;object-fit:cover;display:block}
+  .guide{position:absolute;left:8%;right:8%;top:32%;bottom:32%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.35);transition:border-color .15s}
+  .guide.reading{border-color:#f5c542}
+  .guide.done{border-color:#3ddc84}
+  .laser{position:absolute;left:4%;right:4%;top:50%;height:2px;background:#ff4d4d;opacity:.8}
+  #camMsg{font-size:17px;margin:12px 0;min-height:24px}
+  .codeRow{display:flex;gap:8px}
+  .codeRow input{flex:1}
+  .codeRow button{flex:0 0 auto}
   table{width:100%;border-collapse:collapse;font-size:15px}
   th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
   th{font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:.03em}
@@ -82,11 +93,6 @@
     <div class="row" style="margin-top:8px">
       <button class="btn sec" id="btnCam">📷 Usar cámara</button>
     </div>
-    <div id="cam">
-      <video id="video" playsinline muted></video>
-      <div class="row" style="margin-top:8px"><button class="btn bad" id="btnCamStop">Cerrar cámara</button></div>
-      <p class="muted" id="camMsg">Apunta al código de barras, con buena luz.</p>
-    </div>
   </div>
 
   <div class="card hide" id="result"></div>
@@ -97,7 +103,7 @@
   <div class="card">
     <h2 id="formTitle">Agregar producto</h2>
     <div class="row">
-      <div><label>Código de barras</label><input id="fCode" inputmode="numeric"></div>
+      <div><label>Código de barras</label><div class="codeRow"><input id="fCode" inputmode="numeric"><button class="btn sec" id="btnFormCam" title="Escanear con cámara">📷</button></div></div>
       <div style="flex:2"><label>Nombre</label><input id="fName" placeholder="Ej: Leche Gloria 400g"></div>
     </div>
     <div class="row">
@@ -109,6 +115,7 @@
       <button class="btn" id="btnSave">Guardar</button>
       <button class="btn sec" id="btnClear">Limpiar</button>
     </div>
+    <p class="muted hide" id="editHint"></p>
     <p class="muted">“Stock mínimo”: cuando quede esa cantidad o menos, el producto aparece en el informe como “por acabarse”.</p>
   </div>
   <div class="card">
@@ -161,6 +168,18 @@
 </section>
 </main>
 <div id="toast"></div>
+<div id="camOverlay" class="hide">
+  <div class="camBox">
+    <div class="vwrap"><video id="video" playsinline muted></video><div class="guide" id="guide"><div class="laser"></div></div></div>
+    <p id="camMsg">Abriendo cámara…</p>
+    <div class="row">
+      <button class="btn sec hide" id="btnTorch">🔦 Linterna</button>
+      <button class="btn sec hide" id="btnZoom">🔍 Zoom 2x</button>
+      <button class="btn bad" id="btnCamStop" style="background:#fff">✖ Cerrar</button>
+    </div>
+    <p style="font-size:14px;opacity:.8;margin-top:10px">Pon el código dentro del recuadro, a unos 15–20 cm. Si se ve borroso, aléjalo un poco o usa el zoom.</p>
+  </div>
+</div>
 
 <script>
 const KEY='bodega_productos_v1';
@@ -184,7 +203,6 @@ function showTab(t){
   if(t==='informe')renderReport();
   if(t==='respaldo')renderBackupInfo();
   if(t==='vender')setTimeout(()=>$('scan').focus(),50);
-  if(t!=='vender')stopCam();
 }
 
 // ESCANEAR
@@ -193,6 +211,9 @@ $('btnBuscar').onclick=()=>lookup($('scan').value);
 function lookup(code){
   code=String(code).trim(); if(!code)return;
   $('scan').value='';
+  // mismo producto leído como UPC (12 dígitos) o EAN (13 con 0 adelante)
+  if(!products[code]&&code.length===12&&products['0'+code])code='0'+code;
+  else if(!products[code]&&code.length===13&&code[0]==='0'&&products[code.slice(1)])code=code.slice(1);
   const p=products[code]; const r=$('result'); r.classList.remove('hide');
   if(!p){
     r.innerHTML=`<div class="pname">Producto no registrado</div><p class="muted">Código: ${esc(code)}</p>
@@ -219,48 +240,118 @@ function moveStock(code,d){const p=products[code];p.stock=Math.max(0,(p.stock||0
 function quickSave(code){const p=products[code];const pr=parseFloat($('qPrice').value),st=parseInt($('qStock').value);
   if(!isNaN(pr)&&pr>=0)p.price=pr; if(!isNaN(st)&&st>=0)p.stock=st; p.updated=Date.now(); save(); lookup(code); toast('Cambios guardados')}
 function newFromCode(code){showTab('inventario');clearForm();$('fCode').value=code;$('fName').focus()}
+function editFromScan(code){showTab('inventario');editProduct(code)}
 
 // CÁMARA
-let stream=null,timer=null,zxReader=null;
-$('btnCam').onclick=startCam; $('btnCamStop').onclick=stopCam;
-async function startCam(){
-  $('cam').style.display='block';$('camMsg').textContent='Abriendo cámara…';
+// Para evitar lecturas falsas por imagen borrosa:
+// 1) se verifica el dígito de control de los códigos EAN/UPC (un código mal leído casi nunca lo cumple)
+// 2) el MISMO código debe leerse varias veces seguidas antes de aceptarse
+const NEEDED=3;
+let stream=null,timer=null,zxReader=null,camCb=null,lastCode=null,hits=0,torchOn=false,zoomOn=false;
+$('btnCam').onclick=()=>startCam(code=>{showTab('vender');lookup(code)});
+$('btnFormCam').onclick=e=>{e.preventDefault();startCam(code=>{$('fCode').value=code;checkFormCode()})};
+$('btnCamStop').onclick=stopCam;
+
+function gtinOk(code,format){
+  if(!/^\d+$/.test(code))return true;               // códigos con letras (Code 128): el lector ya los valida
+  if(format==='upc_e'||format===String(window.ZXing&&ZXing.BarcodeFormat.UPC_E))return code.length===8||code.length===6;
+  if(![8,12,13,14].includes(code.length))return false;
+  const d=code.split('').map(Number),check=d.pop();let sum=0;
+  d.reverse().forEach((n,i)=>sum+=n*(i%2===0?3:1));
+  return (10-sum%10)%10===check;
+}
+function vote(code,format){
+  code=String(code).trim();
+  if(!gtinOk(code,format)){return}                  // lectura inválida: se ignora
+  if(code===lastCode)hits++;else{lastCode=code;hits=1}
+  const g=$('guide');
+  if(hits>=NEEDED){
+    g.className='guide done';beep();
+    if(navigator.vibrate)try{navigator.vibrate(80)}catch(e){}
+    const cb=camCb;setTimeout(()=>{stopCam();cb&&cb(code)},150);
+    clearInterval(timer);timer=null;camCb=null;
+  }else{
+    g.className='guide reading';$('camMsg').textContent='Leyendo… mantén quieto ('+hits+'/'+NEEDED+')';
+  }
+}
+async function startCam(cb){
+  camCb=cb;lastCode=null;hits=0;torchOn=false;zoomOn=false;
+  $('camOverlay').classList.remove('hide');$('guide').className='guide';
+  $('btnTorch').classList.add('hide');$('btnZoom').classList.add('hide');
+  $('camMsg').textContent='Abriendo cámara…';
   const video=$('video');
+  const constraints={video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'}]}};
   try{
     if('BarcodeDetector' in window){
-      const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']});
-      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
+      stream=await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject=stream;await video.play();
-      $('camMsg').textContent='Apunta al código de barras, con buena luz.';
-      timer=setInterval(async()=>{try{const c=await det.detect(video);if(c.length){const v=c[0].rawValue;stopCam();showTab('vender');lookup(v)}}catch(e){}},250);
+      setupExtras();
+      $('camMsg').textContent='Pon el código dentro del recuadro';
+      let busy=false;
+      timer=setInterval(async()=>{if(busy||!camCb)return;busy=true;
+        try{const c=await det.detect(video);if(c.length)vote(c[0].rawValue,c[0].format);}catch(e){}busy=false},120);
     }else{
       await loadZXing();
-      zxReader=new ZXing.BrowserMultiFormatReader();
-      $('camMsg').textContent='Apunta al código de barras, con buena luz.';
-      zxReader.decodeFromConstraints({video:{facingMode:'environment'}},video,(res)=>{if(res){const v=res.getText();stopCam();lookup(v)}});
+      const hints=new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E,ZXing.BarcodeFormat.CODE_128]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+      zxReader=new ZXing.BrowserMultiFormatReader(hints,120);
+      $('camMsg').textContent='Pon el código dentro del recuadro';
+      await zxReader.decodeFromConstraints(constraints,video,(res)=>{if(res&&camCb)vote(res.getText(),String(res.getBarcodeFormat()))});
+      stream=video.srcObject;setupExtras();
     }
   }catch(e){
     $('camMsg').textContent='No se pudo abrir la cámara: '+(e.message||e)+'. Revisa el permiso de cámara, o escribe el código a mano.';
   }
 }
+function track(){return stream&&stream.getVideoTracks?stream.getVideoTracks()[0]:null}
+function setupExtras(){
+  const t=track();if(!t||!t.getCapabilities)return;
+  const cap=t.getCapabilities();
+  if(cap.torch)$('btnTorch').classList.remove('hide');
+  if(cap.zoom&&cap.zoom.max>=2)$('btnZoom').classList.remove('hide');
+}
+$('btnTorch').onclick=async()=>{const t=track();if(!t)return;torchOn=!torchOn;
+  try{await t.applyConstraints({advanced:[{torch:torchOn}]})}catch(e){}$('btnTorch').textContent=torchOn?'🔦 Apagar':'🔦 Linterna'};
+$('btnZoom').onclick=async()=>{const t=track();if(!t)return;zoomOn=!zoomOn;
+  try{await t.applyConstraints({advanced:[{zoom:zoomOn?2:1}]})}catch(e){}$('btnZoom').textContent=zoomOn?'🔍 Zoom 1x':'🔍 Zoom 2x'};
 function loadZXing(){return new Promise((ok,fail)=>{if(window.ZXing)return ok();const s=document.createElement('script');
   s.src='https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js';s.onload=ok;s.onerror=()=>fail(new Error('se necesita internet la primera vez'));document.head.appendChild(s)})}
-function stopCam(){clearInterval(timer);timer=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
-  if(zxReader){try{zxReader.reset()}catch(e){}zxReader=null}$('cam').style.display='none'}
+function stopCam(){clearInterval(timer);timer=null;camCb=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  if(zxReader){try{zxReader.reset()}catch(e){}zxReader=null}$('video').srcObject=null;$('camOverlay').classList.add('hide')}
 
 // PRODUCTOS
+let editingCode=null;   // código ORIGINAL del producto que se está editando
 $('btnSave').onclick=()=>{
   const code=$('fCode').value.trim(),name=$('fName').value.trim();
   const price=parseFloat($('fPrice').value),stock=parseInt($('fStock').value),min=parseInt($('fMin').value);
   if(!code||!name)return toast('Falta el código o el nombre');
   if(isNaN(price)||price<0)return toast('Escribe un precio válido');
+  if(editingCode){
+    if(code!==editingCode){
+      if(products[code])return toast('Ese código ya es de otro producto: '+products[code].name);
+      delete products[editingCode];          // se cambia el código: se mueve, no se duplica
+    }
+  }else if(products[code]){
+    editProduct(code);
+    return toast('Ese código ya existía. Ahora lo estás editando; revisa y guarda de nuevo.');
+  }
   products[code]={name,price,stock:isNaN(stock)?0:Math.max(0,stock),min:isNaN(min)?0:Math.max(0,min),updated:Date.now()};
-  save();clearForm();renderList();toast('Producto guardado');
+  const wasEdit=!!editingCode;
+  save();clearForm();renderList();toast(wasEdit?'Cambios guardados':'Producto guardado');
 };
 $('btnClear').onclick=clearForm;
-function clearForm(){['fCode','fName','fPrice','fStock'].forEach(i=>$(i).value='');$('fMin').value=3;$('formTitle').textContent='Agregar producto'}
-function editProduct(code){const p=products[code];$('fCode').value=code;$('fName').value=p.name;$('fPrice').value=p.price;$('fStock').value=p.stock;$('fMin').value=p.min;
-  $('formTitle').textContent='Editar producto';window.scrollTo({top:0,behavior:'smooth'})}
+$('fCode').addEventListener('change',checkFormCode);
+function checkFormCode(){const c=$('fCode').value.trim();
+  if(!editingCode&&c&&products[c]){editProduct(c);toast('Ese código ya existe: abriendo el producto para editarlo')}}
+function clearForm(){editingCode=null;['fCode','fName','fPrice','fStock'].forEach(i=>$(i).value='');$('fMin').value=3;
+  $('formTitle').textContent='Agregar producto';$('btnSave').textContent='Guardar';$('editHint').classList.add('hide')}
+function editProduct(code){const p=products[code];editingCode=code;
+  $('fCode').value=code;$('fName').value=p.name;$('fPrice').value=p.price;$('fStock').value=p.stock;$('fMin').value=p.min;
+  $('formTitle').textContent='Editar producto';$('btnSave').textContent='Guardar cambios';
+  $('editHint').textContent='Editando “'+p.name+'”. Si cambias el código, se reemplaza el anterior (no se crea otro). Para agregar uno nuevo toca “Limpiar”.';
+  $('editHint').classList.remove('hide');window.scrollTo({top:0,behavior:'smooth'})}
 function delProduct(code){const b=event.target;if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='¿Seguro?';setTimeout(()=>{b.dataset.sure='';b.textContent='🗑'},2500);return}
   delete products[code];save();renderList();toast('Producto eliminado')}
 function inlineEdit(code,field,el){const v=field==='price'?parseFloat(el.value):parseInt(el.value);if(isNaN(v)||v<0)return;products[code][field]=v;products[code].updated=Date.now();save()}
