@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mi Bodega – Precios y Stock</title>
+<style>
+  :root{--bg:#f6f4ef;--card:#fff;--ink:#1f2421;--muted:#6b716d;--line:#e3e0d8;--brand:#1d6b4f;--brand2:#e8f3ee;--warn:#b7791f;--warnbg:#fdf3e1;--bad:#b42318;--badbg:#fdeceb}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:16px}
+  header{background:var(--brand);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  header h1{font-size:20px;margin:0}
+  header small{opacity:.85}
+  nav{display:flex;gap:4px;padding:8px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;overflow-x:auto}
+  nav button{flex:1;min-width:90px;border:0;background:transparent;padding:10px 8px;border-radius:10px;font-size:15px;font-weight:600;color:var(--muted);cursor:pointer}
+  nav button.on{background:var(--brand2);color:var(--brand)}
+  main{max-width:900px;margin:0 auto;padding:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  h2{font-size:18px;margin:0 0 10px}
+  label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px;font-weight:600}
+  input,select{width:100%;padding:12px;font-size:17px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  input:focus{outline:2px solid var(--brand);border-color:transparent}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .row>*{flex:1;min-width:120px}
+  .btn{border:0;border-radius:10px;padding:12px 16px;font-size:16px;font-weight:600;cursor:pointer;background:var(--brand);color:#fff}
+  .btn.sec{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+  .btn.warn{background:var(--warn)}
+  .btn.bad{background:#fff;color:var(--bad);border:1px solid var(--bad)}
+  .btn:disabled{opacity:.5}
+  .big-price{font-size:56px;font-weight:800;color:var(--brand);line-height:1;margin:6px 0}
+  .pname{font-size:24px;font-weight:700}
+  .muted{color:var(--muted);font-size:14px}
+  .pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700}
+  .ok{background:var(--brand2);color:var(--brand)}
+  .low{background:var(--warnbg);color:var(--warn)}
+  .out{background:var(--badbg);color:var(--bad)}
+  #cam{display:none;margin-top:10px}
+  #cam video{width:100%;max-height:300px;object-fit:cover;border-radius:12px;background:#000}
+  table{width:100%;border-collapse:collapse;font-size:15px}
+  th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:.03em}
+  td.num,th.num{text-align:right}
+  td input{padding:7px;font-size:15px;width:90px;text-align:right}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+  .stat{background:var(--bg);border-radius:12px;padding:12px}
+  .stat b{display:block;font-size:26px}
+  #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#222;color:#fff;padding:12px 18px;border-radius:12px;display:none;z-index:20;max-width:90%}
+  .hide{display:none}
+  .printonly{display:none}
+  @media print{
+    header,nav,.noprint,#toast{display:none!important}
+    body{background:#fff}
+    .card{border:0;padding:0}
+    .printonly{display:block}
+    main{max-width:none;padding:0}
+    #tab-informe{display:block!important}
+    .tab:not(#tab-informe){display:none!important}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>🛒 Mi Bodega</h1><small>Precios · Stock · Informe</small></div>
+  <small id="hcount"></small>
+</header>
+<nav class="noprint">
+  <button data-t="vender" class="on">Escanear</button>
+  <button data-t="inventario">Productos</button>
+  <button data-t="informe">Informe</button>
+  <button data-t="respaldo">Respaldo</button>
+</nav>
+<main>
+
+<!-- ESCANEAR -->
+<section class="tab" id="tab-vender">
+  <div class="card">
+    <h2>Escanea o escribe el código</h2>
+    <div class="row">
+      <input id="scan" inputmode="numeric" autocomplete="off" placeholder="Código de barras…" style="flex:3">
+      <button class="btn" id="btnBuscar" style="flex:1">Buscar</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn sec" id="btnCam">📷 Usar cámara</button>
+    </div>
+    <div id="cam">
+      <video id="video" playsinline muted></video>
+      <div class="row" style="margin-top:8px"><button class="btn bad" id="btnCamStop">Cerrar cámara</button></div>
+      <p class="muted" id="camMsg">Apunta al código de barras, con buena luz.</p>
+    </div>
+  </div>
+
+  <div class="card hide" id="result"></div>
+</section>
+
+<!-- PRODUCTOS -->
+<section class="tab hide" id="tab-inventario">
+  <div class="card">
+    <h2 id="formTitle">Agregar producto</h2>
+    <div class="row">
+      <div><label>Código de barras</label><input id="fCode" inputmode="numeric"></div>
+      <div style="flex:2"><label>Nombre</label><input id="fName" placeholder="Ej: Leche Gloria 400g"></div>
+    </div>
+    <div class="row">
+      <div><label>Precio (S/)</label><input id="fPrice" type="number" step="0.10" min="0"></div>
+      <div><label>Stock actual</label><input id="fStock" type="number" step="1" min="0"></div>
+      <div><label>Stock mínimo</label><input id="fMin" type="number" step="1" min="0" value="3"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="btnSave">Guardar</button>
+      <button class="btn sec" id="btnClear">Limpiar</button>
+    </div>
+    <p class="muted">“Stock mínimo”: cuando quede esa cantidad o menos, el producto aparece en el informe como “por acabarse”.</p>
+  </div>
+  <div class="card">
+    <div class="row" style="align-items:center">
+      <h2 style="margin:0">Lista de productos</h2>
+      <input id="search" placeholder="Buscar por nombre o código…" style="flex:2">
+    </div>
+    <div style="overflow-x:auto;margin-top:8px">
+      <table>
+        <thead><tr><th>Producto</th><th class="num">Precio S/</th><th class="num">Stock</th><th></th></tr></thead>
+        <tbody id="list"></tbody>
+      </table>
+    </div>
+    <p class="muted">Puedes cambiar el precio y el stock directamente en la tabla; se guarda solo.</p>
+  </div>
+</section>
+
+<!-- INFORME -->
+<section class="tab hide" id="tab-informe">
+  <div class="card">
+    <div class="printonly"><h1 style="margin:0">Informe de inventario – Mi Bodega</h1></div>
+    <h2 class="noprint">Informe de inventario</h2>
+    <p class="muted" id="repDate"></p>
+    <div class="stats" id="stats"></div>
+    <div class="row noprint" style="margin-top:12px">
+      <button class="btn" id="btnPrint">🖨️ Imprimir / Guardar PDF</button>
+      <button class="btn sec" id="btnCsv">⬇️ Descargar Excel (CSV)</button>
+    </div>
+  </div>
+  <div class="card"><h2>❌ Agotados (comprar ya)</h2><div id="repOut"></div></div>
+  <div class="card"><h2>⚠️ Por acabarse</h2><div id="repLow"></div></div>
+  <div class="card"><h2>✅ Todos los productos</h2><div id="repAll"></div></div>
+</section>
+
+<!-- RESPALDO -->
+<section class="tab hide" id="tab-respaldo">
+  <div class="card">
+    <h2>Copia de seguridad</h2>
+    <p>Los datos se guardan en <b>este</b> navegador. Descarga una copia cada semana (o pásala al otro equipo) para no perder nada si se borra el historial.</p>
+    <div class="row">
+      <button class="btn" id="btnBackup">⬇️ Descargar copia</button>
+      <label class="btn sec" style="text-align:center;margin:0;color:var(--brand);font-size:16px">⬆️ Cargar copia<input type="file" id="fileImport" accept=".json" class="hide"></label>
+    </div>
+    <p class="muted" id="lastBackup"></p>
+  </div>
+  <div class="card">
+    <h2>Zona de peligro</h2>
+    <button class="btn bad" id="btnWipe">Borrar todos los productos</button>
+  </div>
+</section>
+</main>
+<div id="toast"></div>
+
+<script>
+const KEY='bodega_productos_v1';
+let products={};
+function load(){try{products=JSON.parse(localStorage.getItem(KEY))||{}}catch(e){products={}}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(products))}catch(e){toast('No se pudo guardar en este navegador')}refreshCount()}
+const $=id=>document.getElementById(id);
+const money=n=>'S/ '+Number(n||0).toFixed(2);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function status(p){if(p.stock<=0)return['Agotado','out'];if(p.stock<=p.min)return['Por acabarse','low'];return['Hay stock','ok']}
+function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',2200)}
+function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)();const o=a.createOscillator();o.frequency.value=1200;o.connect(a.destination);o.start();setTimeout(()=>{o.stop();a.close()},120)}catch(e){}}
+function refreshCount(){$('hcount').textContent=Object.keys(products).length+' productos'}
+
+// Tabs
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>showTab(b.dataset.t));
+function showTab(t){
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('hide',s.id!=='tab-'+t));
+  if(t==='inventario')renderList();
+  if(t==='informe')renderReport();
+  if(t==='respaldo')renderBackupInfo();
+  if(t==='vender')setTimeout(()=>$('scan').focus(),50);
+  if(t!=='vender')stopCam();
+}
+
+// ESCANEAR
+$('scan').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();lookup($('scan').value)}});
+$('btnBuscar').onclick=()=>lookup($('scan').value);
+function lookup(code){
+  code=String(code).trim(); if(!code)return;
+  $('scan').value='';
+  const p=products[code]; const r=$('result'); r.classList.remove('hide');
+  if(!p){
+    r.innerHTML=`<div class="pname">Producto no registrado</div><p class="muted">Código: ${esc(code)}</p>
+      <button class="btn" onclick="newFromCode('${esc(code)}')">➕ Registrar este producto</button>`;
+    return;
+  }
+  const [txt,cls]=status(p);
+  r.innerHTML=`<div class="muted">Código ${esc(code)}</div>
+    <div class="pname">${esc(p.name)}</div>
+    <div class="big-price">${money(p.price)}</div>
+    <p>Stock: <b style="font-size:20px">${p.stock}</b> &nbsp;<span class="pill ${cls}">${txt}</span></p>
+    <div class="row">
+      <button class="btn" onclick="moveStock('${esc(code)}',-1)">🧾 Vendí 1 (−1)</button>
+      <button class="btn sec" onclick="moveStock('${esc(code)}',+1)">📦 Llegó 1 (+1)</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div><label>Cambiar precio (S/)</label><input id="qPrice" type="number" step="0.10" value="${p.price}"></div>
+      <div><label>Corregir stock</label><input id="qStock" type="number" step="1" value="${p.stock}"></div>
+    </div>
+    <div class="row" style="margin-top:8px"><button class="btn warn" onclick="quickSave('${esc(code)}')">Guardar cambios</button></div>`;
+  beep();
+}
+function moveStock(code,d){const p=products[code];p.stock=Math.max(0,(p.stock||0)+d);p.updated=Date.now();save();lookup(code);toast(d<0?'Venta registrada':'Stock aumentado')}
+function quickSave(code){const p=products[code];const pr=parseFloat($('qPrice').value),st=parseInt($('qStock').value);
+  if(!isNaN(pr)&&pr>=0)p.price=pr; if(!isNaN(st)&&st>=0)p.stock=st; p.updated=Date.now(); save(); lookup(code); toast('Cambios guardados')}
+function newFromCode(code){showTab('inventario');clearForm();$('fCode').value=code;$('fName').focus()}
+
+// CÁMARA
+let stream=null,timer=null,zxReader=null;
+$('btnCam').onclick=startCam; $('btnCamStop').onclick=stopCam;
+async function startCam(){
+  $('cam').style.display='block';$('camMsg').textContent='Abriendo cámara…';
+  const video=$('video');
+  try{
+    if('BarcodeDetector' in window){
+      const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']});
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      video.srcObject=stream;await video.play();
+      $('camMsg').textContent='Apunta al código de barras, con buena luz.';
+      timer=setInterval(async()=>{try{const c=await det.detect(video);if(c.length){const v=c[0].rawValue;stopCam();showTab('vender');lookup(v)}}catch(e){}},250);
+    }else{
+      await loadZXing();
+      zxReader=new ZXing.BrowserMultiFormatReader();
+      $('camMsg').textContent='Apunta al código de barras, con buena luz.';
+      zxReader.decodeFromConstraints({video:{facingMode:'environment'}},video,(res)=>{if(res){const v=res.getText();stopCam();lookup(v)}});
+    }
+  }catch(e){
+    $('camMsg').textContent='No se pudo abrir la cámara: '+(e.message||e)+'. Revisa el permiso de cámara, o escribe el código a mano.';
+  }
+}
+function loadZXing(){return new Promise((ok,fail)=>{if(window.ZXing)return ok();const s=document.createElement('script');
+  s.src='https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js';s.onload=ok;s.onerror=()=>fail(new Error('se necesita internet la primera vez'));document.head.appendChild(s)})}
+function stopCam(){clearInterval(timer);timer=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  if(zxReader){try{zxReader.reset()}catch(e){}zxReader=null}$('cam').style.display='none'}
+
+// PRODUCTOS
+$('btnSave').onclick=()=>{
+  const code=$('fCode').value.trim(),name=$('fName').value.trim();
+  const price=parseFloat($('fPrice').value),stock=parseInt($('fStock').value),min=parseInt($('fMin').value);
+  if(!code||!name)return toast('Falta el código o el nombre');
+  if(isNaN(price)||price<0)return toast('Escribe un precio válido');
+  products[code]={name,price,stock:isNaN(stock)?0:Math.max(0,stock),min:isNaN(min)?0:Math.max(0,min),updated:Date.now()};
+  save();clearForm();renderList();toast('Producto guardado');
+};
+$('btnClear').onclick=clearForm;
+function clearForm(){['fCode','fName','fPrice','fStock'].forEach(i=>$(i).value='');$('fMin').value=3;$('formTitle').textContent='Agregar producto'}
+function editProduct(code){const p=products[code];$('fCode').value=code;$('fName').value=p.name;$('fPrice').value=p.price;$('fStock').value=p.stock;$('fMin').value=p.min;
+  $('formTitle').textContent='Editar producto';window.scrollTo({top:0,behavior:'smooth'})}
+function delProduct(code){const b=event.target;if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='¿Seguro?';setTimeout(()=>{b.dataset.sure='';b.textContent='🗑'},2500);return}
+  delete products[code];save();renderList();toast('Producto eliminado')}
+function inlineEdit(code,field,el){const v=field==='price'?parseFloat(el.value):parseInt(el.value);if(isNaN(v)||v<0)return;products[code][field]=v;products[code].updated=Date.now();save()}
+$('search').oninput=renderList;
+function sorted(){return Object.entries(products).sort((a,b)=>a[1].name.localeCompare(b[1].name,'es'))}
+function renderList(){
+  const q=$('search').value.trim().toLowerCase();
+  const rows=sorted().filter(([c,p])=>!q||p.name.toLowerCase().includes(q)||c.includes(q));
+  $('list').innerHTML=rows.length?rows.map(([c,p])=>{const[t,cl]=status(p);return`<tr>
+    <td><b>${esc(p.name)}</b><br><span class="muted">${esc(c)}</span> <span class="pill ${cl}">${t}</span></td>
+    <td class="num"><input type="number" step="0.10" value="${p.price}" onchange="inlineEdit('${esc(c)}','price',this)"></td>
+    <td class="num"><input type="number" step="1" value="${p.stock}" onchange="inlineEdit('${esc(c)}','stock',this)"></td>
+    <td class="num" style="white-space:nowrap"><button class="btn sec" style="padding:6px 10px" onclick="editProduct('${esc(c)}')">✏️</button>
+    <button class="btn bad" style="padding:6px 10px" onclick="delProduct('${esc(c)}')">🗑</button></td></tr>`}).join('')
+    :'<tr><td colspan="4" class="muted">Aún no hay productos. Agrega el primero arriba o escanéalo en “Escanear”.</td></tr>';
+}
+
+// INFORME
+function table(list,showMin){if(!list.length)return'<p class="muted">Ninguno 🎉</p>';
+  return`<table><thead><tr><th>Producto</th><th>Código</th><th class="num">Precio</th><th class="num">Stock</th>${showMin?'<th class="num">Mínimo</th>':''}<th class="num">Valor</th></tr></thead><tbody>${
+  list.map(([c,p])=>`<tr><td>${esc(p.name)}</td><td>${esc(c)}</td><td class="num">${money(p.price)}</td><td class="num">${p.stock}</td>${showMin?`<td class="num">${p.min}</td>`:''}<td class="num">${money(p.price*p.stock)}</td></tr>`).join('')}</tbody></table>`}
+function renderReport(){
+  const all=sorted(),out=all.filter(([,p])=>p.stock<=0),low=all.filter(([,p])=>p.stock>0&&p.stock<=p.min);
+  const units=all.reduce((s,[,p])=>s+p.stock,0),value=all.reduce((s,[,p])=>s+p.stock*p.price,0);
+  $('repDate').textContent='Fecha: '+new Date().toLocaleString('es-PE');
+  $('stats').innerHTML=`<div class="stat">Productos<b>${all.length}</b></div><div class="stat">Unidades en tienda<b>${units}</b></div>
+    <div class="stat">Valor del stock<b>${money(value)}</b></div><div class="stat" style="color:var(--bad)">Agotados<b>${out.length}</b></div>
+    <div class="stat" style="color:var(--warn)">Por acabarse<b>${low.length}</b></div>`;
+  $('repOut').innerHTML=table(out,true);$('repLow').innerHTML=table(low,true);$('repAll').innerHTML=table(all,true);
+}
+$('btnPrint').onclick=()=>{renderReport();window.print()};
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+const today=()=>new Date().toISOString().slice(0,10);
+$('btnCsv').onclick=()=>{
+  const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const lines=[['Codigo','Producto','Precio','Stock','Minimo','Estado','Valor'].map(q).join(';')];
+  sorted().forEach(([c,p])=>lines.push([c,p.name,p.price.toFixed(2),p.stock,p.min,status(p)[0],(p.price*p.stock).toFixed(2)].map(q).join(';')));
+  download('informe-bodega-'+today()+'.csv','﻿'+lines.join('\r\n'),'text/csv;charset=utf-8');
+};
+
+// RESPALDO
+$('btnBackup').onclick=()=>{download('respaldo-bodega-'+today()+'.json',JSON.stringify({app:'mi-bodega',fecha:new Date().toISOString(),productos:products},null,1),'application/json');
+  try{localStorage.setItem(KEY+'_lastbackup',Date.now())}catch(e){}renderBackupInfo()};
+$('fileImport').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);const p=d.productos||d;
+  if(typeof p!=='object')throw 0;products=p;save();toast('Copia cargada: '+Object.keys(p).length+' productos');renderBackupInfo()}catch(err){toast('Ese archivo no es una copia válida')}};r.readAsText(f);e.target.value=''};
+function renderBackupInfo(){let t=null;try{t=localStorage.getItem(KEY+'_lastbackup')}catch(e){}
+  $('lastBackup').textContent=t?'Última copia descargada: '+new Date(+t).toLocaleString('es-PE'):'Todavía no has descargado ninguna copia.'}
+$('btnWipe').onclick=function(){if(this.dataset.sure!=='1'){this.dataset.sure='1';this.textContent='Toca otra vez para confirmar';setTimeout(()=>{this.dataset.sure='';this.textContent='Borrar todos los productos'},3000);return}
+  products={};save();toast('Se borraron todos los productos');this.dataset.sure='';this.textContent='Borrar todos los productos'};
+
+load();refreshCount();$('scan').focus();
+</script>
+</body>
+</html>
